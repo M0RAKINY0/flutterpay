@@ -9,13 +9,14 @@ datasource db {
 }
 
 model Merchant {
-  id           String   @id @default(cuid())
+  id           String        @id @default(cuid())
   businessName String
-  email        String   @unique
+  email        String        @unique
   passwordHash String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   apiKeys      ApiKey[]
+  transactions Transaction[]
 }
 
 enum ApiKeyKind {
@@ -34,4 +35,31 @@ model ApiKey {
   revokedAt  DateTime?
 
   @@index([merchantId])
+}
+
+enum TransactionStatus {
+  PENDING
+  AWAITING_OTP
+  SUCCESSFUL
+  FAILED
+  ABANDONED
+}
+
+model Transaction {
+  id            String            @id @default(cuid())
+  merchantId    String
+  merchant      Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  txRef         String
+  amountKobo    Int
+  currency      String
+  status        TransactionStatus @default(PENDING)
+  customerEmail String
+  cardLast4     String?
+  redirectUrl   String
+  expiresAt     DateTime
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([merchantId, txRef])
+  @@index([merchantId, createdAt])
 }

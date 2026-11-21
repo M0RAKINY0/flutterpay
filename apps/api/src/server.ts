@@ -4,7 +4,9 @@ import { db } from "./db.js";
 
 const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? 3000);
-const server = createApp(db).listen(port, host, () => {
+const urlHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+const appBaseUrl = process.env.APP_BASE_URL?.trim() || `http://${urlHost}:${port}`;
+const server = createApp(db, { appBaseUrl }).listen(port, host, () => {
   console.log(`FlutterPay API listening at http://${host}:${port}`);
 });
 
