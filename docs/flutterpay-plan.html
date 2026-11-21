@@ -1,0 +1,436 @@
+<title>FlutterPay Build Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column, diagrams in framed panels, roadmap as a numbered phase grid. */
+:root {
+  --bg: #f6f8f7;
+  --surface: #ffffff;
+  --fg: #142019;
+  --muted: #56655d;
+  --line: #d9e2dc;
+  --accent: #0b7a4b;
+  --accent-soft: #e2f3ea;
+  --warn: #9a5b00;
+  --warn-soft: #fbf0dc;
+  --code-bg: #eef3f0;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1512; --surface: #161e1a; --fg: #e3ebe6; --muted: #98a89f; --line: #2a3530;
+    --accent: #3fc98a; --accent-soft: #17352a; --warn: #f0b45a; --warn-soft: #3a2c14; --code-bg: #1c2621;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1512; --surface: #161e1a; --fg: #e3ebe6; --muted: #98a89f; --line: #2a3530;
+  --accent: #3fc98a; --accent-soft: #17352a; --warn: #f0b45a; --warn-soft: #3a2c14; --code-bg: #1c2621;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+}
+.wrap { max-width: 920px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: 2.4rem; font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: 1.5rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; max-width: 65ch; }
+code, pre { font-family: var(--mono); font-size: 0.86em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.eyebrow { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); font-weight: 600; }
+section { display: flex; flex-direction: column; gap: 16px; }
+.lede { color: var(--muted); font-size: 1.05rem; }
+header { display: flex; flex-direction: column; gap: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 0.8rem; padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; overflow-x: auto; }
+.panel pre.mermaid { margin: 0; background: none; display: flex; justify-content: center; }
+.note { font-size: 0.9rem; color: var(--muted); }
+
+/* roadmap */
+.track { display: grid; grid-template-columns: 6fr 2fr 1fr; gap: 6px; font-size: 0.78rem; font-weight: 600; }
+.track div { padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
+.track div:nth-child(2) { background: var(--code-bg); color: var(--fg); }
+.track div:nth-child(3) { background: var(--warn-soft); color: var(--warn); }
+.phases { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }
+.phase { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.phase .num { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); font-weight: 500; }
+.phase dl { margin: 0; display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; }
+.phase dt { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.phase dd { margin: 0; }
+.phase .done { margin-top: auto; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 0.85rem; }
+.phase .done b { color: var(--accent); font-weight: 600; }
+.phase.stretch { border-style: dashed; }
+
+/* tables */
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+td code { white-space: nowrap; }
+.tabnum { font-variant-numeric: tabular-nums; }
+
+pre.tree { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin: 0; overflow-x: auto; line-height: 1.55; }
+.tree .c { color: var(--muted); }
+
+.calls { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.call { padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; font-size: 0.9rem; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.call strong { font-family: var(--display); font-weight: 600; }
+.call span { color: var(--muted); }
+ul.plain { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 520px) { h1 { font-size: 1.9rem; } .track { grid-template-columns: 1fr; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">Build plan · draft for your approval</span>
+  <h1>FlutterPay</h1>
+  <p class="lede">A learning clone of Flutterwave. Merchants get API keys, create payments, send customers to a hosted checkout page, verify the result, and receive signed webhooks. A fake bank stands in for Visa, Mastercard and the banks, so no real money moves.</p>
+  <div class="chips">
+    <span class="chip">TypeScript</span>
+    <span class="chip">Node + Express</span>
+    <span class="chip">SQLite + Prisma</span>
+    <span class="chip">Naira only, in kobo</span>
+    <span class="chip warn">Fake money only</span>
+  </div>
+</header>
+
+<section>
+  <span class="eyebrow">The pieces</span>
+  <h2>What you're building</h2>
+  <p>Six parts. You build every box. The demo shop matters most for learning: you play the merchant too, so you feel what Flutterwave's customers feel.</p>
+  <div class="panel">
+<pre class="mermaid">
+flowchart LR
+  subgraph Merchant["Merchant side (you, pretending)"]
+    Shop["Demo shop backend"]
+    SDK["FlutterPay Node SDK"]
+    Shop --- SDK
+  end
+  subgraph FP["FlutterPay (you, for real)"]
+    API["FlutterPay API"]
+    Checkout["Hosted checkout page"]
+    Bank["Fake bank"]
+    DB[("SQLite database")]
+    Dash["Merchant dashboard"]
+    Worker["Webhook sender"]
+  end
+  Customer(("Customer"))
+  SDK -- "secret key" --> API
+  Customer -- "card details" --> Checkout
+  Checkout --> Bank
+  API --- DB
+  Checkout --- DB
+  Dash --- DB
+  Worker -- "signed POST" --> Shop
+  DB --> Worker
+</pre>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">The main flow</span>
+  <h2>One payment, end to end</h2>
+  <p>This is the Flutterwave flow you just learned, with FlutterPay in the middle. Every arrow is something you'll write.</p>
+  <div class="panel">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor C as Customer
+  participant S as Demo shop
+  participant A as FlutterPay API
+  participant P as Checkout page
+  participant B as Fake bank
+  C->>S: Click "Pay ₦5,000"
+  S->>A: POST /v1/payments (secret key, tx_ref, amount)
+  A-->>S: { id, link }
+  S-->>C: Redirect to link
+  C->>P: Enter test card
+  P->>B: Charge 500000 kobo
+  B-->>P: Approved, OTP needed
+  C->>P: Enter OTP
+  P->>A: Mark transaction successful
+  P-->>C: Redirect to shop's redirect_url
+  C->>S: Land on /payment/done?transaction_id=...
+  S->>A: GET /v1/transactions/:id/verify
+  A-->>S: { status: successful, amount, tx_ref }
+  A--)S: Webhook: charge.completed (signed)
+  S-->>A: 200 OK
+</pre>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Rules for a transaction</span>
+  <h2>Payment states</h2>
+  <p>A transaction can only move along these arrows. Once it is successful or failed, it never changes again. That one rule stops a lot of bugs, like a customer getting charged twice.</p>
+  <div class="panel">
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> pending: merchant creates payment
+  pending --> awaiting_otp: card accepted, OTP sent
+  awaiting_otp --> successful: correct OTP
+  awaiting_otp --> failed: wrong OTP 3 times
+  pending --> successful: card needs no OTP
+  pending --> failed: bank declines
+  pending --> abandoned: nobody paid in 30 min
+  successful --> [*]
+  failed --> [*]
+  abandoned --> [*]
+</pre>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Database</span>
+  <h2>What gets stored</h2>
+  <p>Four tables. Money is stored as whole kobo (₦5,000 is <code>500000</code>) because decimals in computers round badly, and in payments a rounding bug is a missing naira.</p>
+  <div class="panel">
+<pre class="mermaid">
+erDiagram
+  MERCHANT ||--o{ API_KEY : has
+  MERCHANT ||--o{ TRANSACTION : receives
+  TRANSACTION ||--o{ WEBHOOK_DELIVERY : triggers
+  MERCHANT {
+    string id
+    string business_name
+    string email
+    string password_hash
+    string webhook_url
+    string webhook_secret
+  }
+  API_KEY {
+    string id
+    string merchant_id
+    string kind "public or secret"
+    string prefix "fp_sec_test_ab12"
+    string key_hash
+    datetime revoked_at
+  }
+  TRANSACTION {
+    string id
+    string merchant_id
+    string tx_ref "unique per merchant"
+    int amount_kobo
+    string currency "NGN"
+    string status
+    string customer_email
+    string card_last4
+    string redirect_url
+  }
+  WEBHOOK_DELIVERY {
+    string id
+    string transaction_id
+    string event "charge.completed"
+    int attempt
+    int response_code
+    datetime next_retry_at
+  }
+</pre>
+  </div>
+  <p class="note">FlutterPay never stores a full card number, only the last 4 digits. Real processors follow the same rule.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Roadmap</span>
+  <h2>Build order</h2>
+  <p>Nine phases, each small enough to finish in a sitting or two. Each one ends with one test that proves it works. Don't start a phase until the one before it passes.</p>
+  <div class="track" aria-hidden="true">
+    <div>Phases 0 to 5 · the money flow</div>
+    <div>6 to 7 · developer side</div>
+    <div>8 · dashboard</div>
+  </div>
+  <div class="phases">
+
+    <article class="phase">
+      <span class="num">Phase 0</span>
+      <h3>Project setup</h3>
+      <dl>
+        <div><dt>Build</dt><dd>Folder structure, TypeScript, an Express server, Prisma talking to a SQLite file.</dd></div>
+        <div><dt>Learn</dt><dd>How a Node project is laid out, what a database migration is.</dd></div>
+      </dl>
+      <p class="done"><b>Done when</b> <code>GET /health</code> returns <code>{ ok: true }</code>.</p>
+    </article>
+
+    <article class="phase">
+      <span class="num">Phase 1</span>
+      <h3>Merchants and API keys</h3>
+      <dl>
+        <div><dt>Build</dt><dd>Merchant sign-up. Generate a public key and a secret key. Store only a hash of the secret. Middleware that reads <code>Authorization: Bearer</code>.</dd></div>
+        <div><dt>Learn</dt><dd>Why you hash secrets, how API authentication works.</dd></div>
+      </dl>
+      <p class="done"><b>Done when</b> a request with a wrong key gets <code>401</code>.</p>
+    </article>
+
+    <article class="phase">
+      <span class="num">Phase 2</span>
+      <h3>Create a payment</h3>
+      <dl>
+        <div><dt>Build</dt><dd><code>POST /v1/payments</code>. Check the input, save a pending transaction, return a checkout link.</dd></div>
+        <div><dt>Learn</dt><dd>Input validation, why <code>tx_ref</code> must be unique.</dd></div>
+      </dl>
+      <p class="done"><b>Done when</b> sending the same <code>tx_ref</code> twice returns <code>409</code>.</p>
+    </article>
+
+    <article class="phase">
+      <span class="num">Phase 3</span>
+      <h3>Checkout page and fake bank</h3>
+      <dl>
+        <div><dt>Build</dt><dd>The page customers see. A card form, the fake bank's rules, an OTP step, then a redirect back to the shop.</dd></div>
+        <div><dt>Learn</dt><dd>State machines, why card numbers never get saved.</dd></div>
+      </dl>
+      <p class="done"><b>Done when</b> the decline test card marks the transaction <code>failed</code>.</p>
+    </article>
+
+    <article class="phase">
+      <span class="num">Phase 4</span>
+      <h3>Verify endpoint</h3>
+      <dl>
+        <div><dt>Build</dt><dd><code>GET /v1/transactions/:id/verify</code>. A merchant can only see their own transactions.</dd></div>
+        <div><dt>Learn</dt><dd>Why the redirect can't be trusted, access control.</dd></div>
+      </dl>
+      <p class="done"><b>Done when</b> merchant B asking about merchant A's payment gets <code>404</code>.</p>
+    </article>
+
+    <article class="phase">
+      <span class="num">Phase 5</span>
+      <h3>Webhooks</h3>
+      <dl>
+        <div><dt>Build</dt><dd>Sign each webhook with HMAC, send it, retry after 1, 5 and 30 minutes on failure, log every attempt.</dd></div>
+        <div><dt>Learn</dt><dd>Message signing, retries, handling the same event twice.</dd></div>
+      </dl>
+      <p class="done"><b>Done when</b> a correct signature passes and a tampered body fails.</p>
+    </article>
+
+    <article class="phase">
+      <span class="num">Phase 6</span>
+      <h3>Node SDK</h3>
+      <dl>
+        <div><dt>Build</dt><dd>A package merchants install: <code>payments.create()</code>, <code>transactions.verify()</code>, <code>webhooks.verify()</code>.</dd></div>
+        <div><dt>Learn</dt><dd>Designing a library other developers use, typed errors.</dd></div>
+      </dl>
+      <p class="done"><b>Done when</b> <code>payments.create()</code> returns a link from the running API.</p>
+    </article>
+
+    <article class="phase">
+      <span class="num">Phase 7</span>
+      <h3>Demo shop</h3>
+      <dl>
+        <div><dt>Build</dt><dd>A tiny store that sells one item, uses only the SDK, and does all four verify checks.</dd></div>
+        <div><dt>Learn</dt><dd>The merchant's side, the part you'd do at a real job.</dd></div>
+      </dl>
+      <p class="done"><b>Done when</b> the order flips to paid when the webhook arrives.</p>
+    </article>
+
+    <article class="phase">
+      <span class="num">Phase 8</span>
+      <h3>Merchant dashboard</h3>
+      <dl>
+        <div><dt>Build</dt><dd>Log in, see transactions, see webhook attempts, set the webhook URL, replace a leaked key.</dd></div>
+        <div><dt>Learn</dt><dd>Sessions and cookies, building pages from server data.</dd></div>
+      </dl>
+      <p class="done"><b>Done when</b> a replaced secret key stops working straight away.</p>
+    </article>
+
+    <article class="phase stretch">
+      <span class="num">Later, if you want</span>
+      <h3>Stretch goals</h3>
+      <dl>
+        <div><dt>Ideas</dt><dd>A popup checkout script for the browser, refunds, a test/live switch, a Python SDK, payouts to a fake bank account.</dd></div>
+      </dl>
+    </article>
+
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Contract</span>
+  <h2>FlutterPay's API</h2>
+  <p>Small on purpose. Each endpoint maps to a Flutterwave one you've seen.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Endpoint</th><th>Who calls it</th><th>Flutterwave twin</th></tr></thead>
+      <tbody>
+        <tr><td><code>POST /v1/payments</code></td><td>Merchant server, secret key</td><td><code>POST /v3/payments</code></td></tr>
+        <tr><td><code>GET /v1/transactions/:id/verify</code></td><td>Merchant server, secret key</td><td><code>GET /v3/transactions/:id/verify</code></td></tr>
+        <tr><td><code>GET /v1/transactions</code></td><td>Merchant server or dashboard</td><td><code>GET /v3/transactions</code></td></tr>
+        <tr><td><code>GET /pay/:id</code></td><td>Customer's browser</td><td>Hosted checkout link</td></tr>
+        <tr><td>Webhook <code>charge.completed</code></td><td>FlutterPay calls the merchant</td><td>Same event name</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Testing</span>
+  <h2>Fake bank test cards</h2>
+  <p>The fake bank decides what happens by looking at the card number. Any future expiry date and any 3-digit CVV work.</p>
+  <div class="tbl">
+    <table class="tabnum">
+      <thead><tr><th>Card number</th><th>What the fake bank does</th></tr></thead>
+      <tbody>
+        <tr><td><code>4242 4242 4242 4242</code></td><td>Approves straight away</td></tr>
+        <tr><td><code>5060 9900 0000 0001</code></td><td>Asks for an OTP. <code>123456</code> approves, anything else fails</td></tr>
+        <tr><td><code>4000 0000 0000 0002</code></td><td>Declines: card blocked</td></tr>
+        <tr><td><code>4000 0000 0000 9995</code></td><td>Declines: insufficient funds</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Files</span>
+  <h2>Folder layout</h2>
+<pre class="tree">flutterpay/
+├── apps/
+│   ├── api/          <span class="c"># FlutterPay server: API, checkout page, fake bank, webhook sender</span>
+│   ├── dashboard/    <span class="c"># merchant dashboard (phase 8)</span>
+│   └── demo-shop/    <span class="c"># pretend merchant that uses the SDK (phase 7)</span>
+├── packages/
+│   └── sdk-node/     <span class="c"># the package merchants install (phase 6)</span>
+├── docs/
+│   └── flutterpay-plan.html
+└── package.json      <span class="c"># npm workspaces tie the folders together</span></pre>
+</section>
+
+<section>
+  <span class="eyebrow">Decisions I made</span>
+  <h2>Calls you can change</h2>
+  <p>You didn't pick a language or tools, so I picked these. Tell me if any feel wrong.</p>
+  <div class="calls">
+    <div class="call"><strong>TypeScript everywhere</strong><span>One language for server, SDK and pages. The type checker catches mistakes before you run the code.</span></div>
+    <div class="call"><strong>Express</strong><span>The most common Node web framework. Most tutorials and Stack Overflow answers use it.</span></div>
+    <div class="call"><strong>SQLite + Prisma</strong><span>The database is one file. Nothing to install. Prisma's schema file reads like plain English.</span></div>
+    <div class="call"><strong>HMAC-signed webhooks</strong><span>Flutterwave sends the same fixed password with every webhook. I'd sign each message instead, the way Paystack and Stripe do. It's safer and teaches you more.</span></div>
+    <div class="call"><strong>Naira only</strong><span>Multi-currency adds exchange rates and rounding rules. Skip it for now.</span></div>
+    <div class="call"><strong>Runs on your machine</strong><span>No hosting until it all works locally. Deploying can be a later phase.</span></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Out of scope</span>
+  <h2>Not building</h2>
+  <ul class="plain">
+    <li>Anything with real money, real cards or real banks</li>
+    <li>Bank transfer, USSD and mobile money payment options</li>
+    <li>Fraud checks, KYC and business verification</li>
+    <li>Settlements, fees and payouts (maybe as a stretch goal)</li>
+  </ul>
+</section>
+
+</div>
