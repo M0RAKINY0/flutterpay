@@ -2,7 +2,7 @@
 
 FlutterPay is a payment gateway simulator for learning backend development. The finished project will let a merchant create a payment, send a customer to checkout, verify the result and receive a signed webhook through a Node SDK. All payments will be simulated.
 
-Phases 0 to 3 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments, serves the hosted checkout page with a fake bank card simulator, and lists paginated merchant transaction history. Verification, webhooks, the Node SDK and the merchant dashboard are the next phases.
+Phases 0 to 4 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments, serves the hosted checkout page with a fake bank card simulator, lists paginated merchant transaction history, and verifies transactions server-side with merchant isolation. Webhooks, the Node SDK and the merchant dashboard are the next phases.
 
 ## Run it
 
@@ -37,8 +37,7 @@ Press Ctrl+C in the terminal to stop the server.
 | `npm run dev` | Start the API and restart it when you save code. |
 | `npm run db:studio` | Open Prisma's database viewer. |
 | `npm run db:migrate -- --name describe_change` | Create and apply a migration after you change the schema. |
-| `npm test` | Test health, merchant signup, API key authentication, payment creation and transaction history against temporary SQLite databases. |
-| `npm run test:postman` | Run the Postman collection against a running local server using the Postman CLI. |
+| `npm test` | Test health, merchant signup, API key authentication, payment creation, transaction history, hosted checkout and transaction verification against temporary SQLite databases. |
 | `npm run typecheck` | Check TypeScript without building. |
 | `npm run build` | Generate the database client and compile the API into apps/api/dist. |
 | `npm start` | Run the compiled API after building and applying migrations. |
@@ -170,15 +169,15 @@ Open the `link` returned by `POST /v1/payments` (e.g. `http://127.0.0.1:3000/pay
 
 Unpaid links expire to `abandoned` after 30 minutes. Once a transaction reaches `successful`, `failed` or `abandoned`, it cannot be charged again. On completion, browser forms redirect (`303`) to `redirect_url` with `status`, `tx_ref` and `transaction_id` query parameters.
 
-## Test with Postman or Postman CLI
+## Verify a transaction
 
-Import `postman/flutterpay.postman_collection.json` and `postman/local.postman_environment.json` into the Postman desktop app, or run the full flow from the terminal while `npm run dev` is running:
+Never trust the `status` query parameter on your callback redirect—a customer can edit browser URLs. Always confirm the result from your server using your secret API key:
 
 ```powershell
-npm run test:postman
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/transactions/$($payment.transaction.id)/verify" -Headers $headers
 ```
 
-The collection checks `/health`, registers a unique test merchant, saves `public_key` and `secret_key` automatically, verifies secret-key auth (and `401` for public keys), creates a payment, confirms duplicate `tx_ref` returns `409`, and fetches `all`, `daily`, `weekly` and `monthly` transaction history.
+`GET /v1/transactions/:id/verify` returns HTTP 200 with `{ transaction }` (including `status`, `amount_kobo`, `currency`, `tx_ref`, `card_last4` and `failure_reason`), lazily transitioning unpaid expired links to `abandoned`. A merchant can only verify its own transactions; requesting another merchant's transaction ID or an unknown ID returns `404 NOT_FOUND`.
 
 ## API errors
 
@@ -197,6 +196,7 @@ Errors contain a stable code and a readable message:
 | --- | --- | --- |
 | 400 | `INVALID_INPUT` | Invalid fields or malformed JSON. |
 | 401 | `UNAUTHORIZED` | Missing or unusable secret key. |
+| 404 | `NOT_FOUND` | Payment or transaction does not exist (or belongs to another merchant). |
 | 409 | `EMAIL_EXISTS` | The normalized email already belongs to a merchant. |
 | 409 | `DUPLICATE_TX_REF` | This merchant already created a transaction with the same `tx_ref`. |
 | 413 | `BODY_TOO_LARGE` | JSON body exceeds 8 KB. |
@@ -230,7 +230,7 @@ apps/api/
   src/app.ts              Express routes
   src/merchants.ts        Signup and merchant details endpoints
   src/payments.ts         Payment creation endpoint and checkout link builder
-  src/transactions.ts     Transaction serialization and paginated history endpoint
+  src/transactions.ts     Transaction serialization, paginated history and verify endpoint
   src/checkout.ts         Hosted checkout pages, charge/OTP handlers and redirects
   src/fake-bank.ts        Test card and OTP simulation rules
   src/auth.ts             Secret key authentication middleware
@@ -241,15 +241,14 @@ apps/api/
   test/merchants.test.ts   Signup, storage, authentication and failure tests
   test/payments.test.ts    Payment creation, uniqueness, history periods and pagination tests
   test/checkout.test.ts    Checkout UI, fake bank, OTP retries, expiry and concurrency tests
+  test/verify.test.ts      Server-side verification, tenant isolation and expiry tests
 docs/
   flutterpay-plan.html     Visual roadmap for all phases
   2026-11-21-project-setup.md
   2026-11-21-phase-1-merchants.md
   2026-11-21-phase-2-payments.md
   2026-11-21-phase-3-checkout.md
-postman/
-  flutterpay.postman_collection.json
-  local.postman_environment.json
+  2026-11-21-phase-4-verify.md
 ```
 
 The root package.json uses npm workspaces. It forwards commands to the API package. We will add `packages/sdk-node` and `apps/dashboard` when those phases begin. SDK examples and integration tests will exercise the payment flow directly. A demo shop is outside the project scope.
@@ -262,4 +261,4 @@ GitHub Actions installs dependencies, applies migrations, checks types, runs the
 
 ## Next step
 
-Phase 4 adds the server-side transaction verification endpoint (`GET /v1/transactions/:id/verify`). See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 3 implementation plan](docs/2026-11-21-phase-3-checkout.md).
+Phase 5 adds HMAC-signed `charge.completed` webhooks with retry scheduling and delivery logs. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 4 implementation plan](docs/2026-11-21-phase-4-verify.md).
