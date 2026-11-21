@@ -38,6 +38,7 @@ Press Ctrl+C in the terminal to stop the server.
 | `npm run db:studio` | Open Prisma's database viewer. |
 | `npm run db:migrate -- --name describe_change` | Create and apply a migration after you change the schema. |
 | `npm test` | Test health, merchant signup, API key authentication, payment creation and transaction history against temporary SQLite databases. |
+| `npm run test:postman` | Run the Postman collection against a running local server using the Postman CLI. |
 | `npm run typecheck` | Check TypeScript without building. |
 | `npm run build` | Generate the database client and compile the API into apps/api/dist. |
 | `npm start` | Run the compiled API after building and applying migrations. |
@@ -156,6 +157,16 @@ Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/transactions?period=monthly&dat
 
 The response returns `{ transactions, period, pagination }`, ordered newest first, and never exposes another merchant's transactions.
 
+## Test with Postman or Postman CLI
+
+Import `postman/flutterpay.postman_collection.json` and `postman/local.postman_environment.json` into the Postman desktop app, or run the full flow from the terminal while `npm run dev` is running:
+
+```powershell
+npm run test:postman
+```
+
+The collection checks `/health`, registers a unique test merchant, saves `public_key` and `secret_key` automatically, verifies secret-key auth (and `401` for public keys), creates a payment, confirms duplicate `tx_ref` returns `409`, and fetches `all`, `daily`, `weekly` and `monthly` transaction history.
+
 ## API errors
 
 Errors contain a stable code and a readable message:
@@ -219,6 +230,9 @@ docs/
   2026-11-21-project-setup.md
   2026-11-21-phase-1-merchants.md
   2026-11-21-phase-2-payments.md
+postman/
+  flutterpay.postman_collection.json
+  local.postman_environment.json
 ```
 
 The root package.json uses npm workspaces. It forwards commands to the API package. We will add `packages/sdk-node` and `apps/dashboard` when those phases begin. SDK examples and integration tests will exercise the payment flow directly. A demo shop is outside the project scope.
