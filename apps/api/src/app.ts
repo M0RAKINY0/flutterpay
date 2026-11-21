@@ -1,5 +1,6 @@
 import express, { type ErrorRequestHandler } from "express";
 import type { PrismaClient } from "./generated/prisma/client.js";
+import { checkoutRoutes } from "./checkout.js";
 import { merchantRoutes } from "./merchants.js";
 import { paymentRoutes } from "./payments.js";
 import { transactionRoutes } from "./transactions.js";
@@ -23,6 +24,7 @@ export function createApp(db: PrismaClient, options?: AppOptions) {
   app.use("/v1/merchants", merchantRoutes(db));
   app.use("/v1/payments", paymentRoutes(db, options));
   app.use("/v1/transactions", transactionRoutes(db, options));
+  app.use("/pay", checkoutRoutes(db, options));
 
   const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     res.set("Cache-Control", "no-store");

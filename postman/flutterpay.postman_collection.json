@@ -13,7 +13,9 @@
     { "key": "secret_key", "value": "" },
     { "key": "tx_ref", "value": "" },
     { "key": "transaction_id", "value": "" },
-    { "key": "checkout_link", "value": "" }
+    { "key": "checkout_link", "value": "" },
+    { "key": "otp_transaction_id", "value": "" },
+    { "key": "decline_transaction_id", "value": "" }
   ],
   "item": [
     {
@@ -361,6 +363,242 @@
               "  const data = pm.response.json();",
               "  pm.expect(data.period.type).to.eql('monthly');",
               "  pm.expect(data.transactions[0].tx_ref).to.eql(pm.collectionVariables.get('tx_ref'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Load Checkout Page",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Accept", "value": "text/html" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/pay/{{transaction_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["pay", "{{transaction_id}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Checkout page renders HTML form', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.text()).to.include('FlutterPay Test Checkout');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Charge Approve Test Card",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"card_number\": \"4242 4242 4242 4242\",\n  \"expiry\": \"12/30\",\n  \"cvv\": \"123\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/pay/{{transaction_id}}/charge",
+          "host": ["{{base_url}}"],
+          "path": ["pay", "{{transaction_id}}", "charge"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Approve test card marks payment successful', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const data = pm.response.json();",
+              "  pm.expect(data.transaction.status).to.eql('successful');",
+              "  pm.expect(data.transaction.card_last4).to.eql('4242');",
+              "  pm.expect(data.redirect_url).to.include('status=successful');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. Create Payment for OTP Flow",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{secret_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tx_ref\": \"{{tx_ref}}-otp\",\n  \"amount_kobo\": 250000,\n  \"currency\": \"NGN\",\n  \"customer_email\": \"otp-buyer@example.com\",\n  \"redirect_url\": \"http://127.0.0.1:4000/callback\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/v1/payments",
+          "host": ["{{base_url}}"],
+          "path": ["v1", "payments"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Creates pending payment for OTP test', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('otp_transaction_id', pm.response.json().transaction.id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14. Charge OTP Test Card",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"card_number\": \"5060 9900 0000 0001\",\n  \"expiry\": \"12/30\",\n  \"cvv\": \"123\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/pay/{{otp_transaction_id}}/charge",
+          "host": ["{{base_url}}"],
+          "path": ["pay", "{{otp_transaction_id}}", "charge"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('OTP card transitions payment to awaiting_otp', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const data = pm.response.json();",
+              "  pm.expect(data.transaction.status).to.eql('awaiting_otp');",
+              "  pm.expect(data.next_action).to.eql('otp');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15. Submit Valid OTP (123456)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"otp\": \"123456\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/pay/{{otp_transaction_id}}/otp",
+          "host": ["{{base_url}}"],
+          "path": ["pay", "{{otp_transaction_id}}", "otp"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Valid OTP marks payment successful', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const data = pm.response.json();",
+              "  pm.expect(data.transaction.status).to.eql('successful');",
+              "  pm.expect(data.redirect_url).to.include('status=successful');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16. Create Payment for Decline Flow",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{secret_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tx_ref\": \"{{tx_ref}}-decline\",\n  \"amount_kobo\": 150000,\n  \"currency\": \"NGN\",\n  \"customer_email\": \"decline-buyer@example.com\",\n  \"redirect_url\": \"http://127.0.0.1:4000/callback\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/v1/payments",
+          "host": ["{{base_url}}"],
+          "path": ["v1", "payments"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Creates pending payment for decline test', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.collectionVariables.set('decline_transaction_id', pm.response.json().transaction.id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17. Charge Decline Test Card",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"card_number\": \"4000 0000 0000 0002\",\n  \"expiry\": \"12/30\",\n  \"cvv\": \"123\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/pay/{{decline_transaction_id}}/charge",
+          "host": ["{{base_url}}"],
+          "path": ["pay", "{{decline_transaction_id}}", "charge"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Decline card marks payment failed with reason', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const data = pm.response.json();",
+              "  pm.expect(data.transaction.status).to.eql('failed');",
+              "  pm.expect(data.transaction.failure_reason).to.eql('Card blocked');",
+              "  pm.expect(data.redirect_url).to.include('status=failed');",
               "});"
             ]
           }

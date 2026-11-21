@@ -2,7 +2,7 @@
 
 FlutterPay is a payment gateway simulator for learning backend development. The finished project will let a merchant create a payment, send a customer to checkout, verify the result and receive a signed webhook through a Node SDK. All payments will be simulated.
 
-Phases 0, 1 and 2 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments and lists paginated merchant transaction history. Hosted checkout, verification, webhooks and the SDK are the next phases.
+Phases 0 to 3 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments, serves the hosted checkout page with a fake bank card simulator, and lists paginated merchant transaction history. Verification, webhooks, the Node SDK and the merchant dashboard are the next phases.
 
 ## Run it
 
@@ -157,6 +157,19 @@ Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/transactions?period=monthly&dat
 
 The response returns `{ transactions, period, pagination }`, ordered newest first, and never exposes another merchant's transactions.
 
+## Hosted checkout & fake bank
+
+Open the `link` returned by `POST /v1/payments` (e.g. `http://127.0.0.1:3000/pay/<id>`) in a browser, or submit JSON directly to `POST /pay/:id/charge` and `POST /pay/:id/otp`. Any future `MM/YY` expiry date and any 3-digit CVV work. Full card numbers and CVVs are never stored—only `card_last4`.
+
+| Test card | Fake bank behaviour |
+| --- | --- |
+| `4242 4242 4242 4242` | Approves immediately (`successful`). |
+| `5060 9900 0000 0001` | Requires OTP (`awaiting_otp`). `123456` approves; 3 wrong OTPs fail the payment. |
+| `4000 0000 0000 0002` | Declines (`failed`, `"Card blocked"`). |
+| `4000 0000 0000 9995` | Declines (`failed`, `"Insufficient funds"`). |
+
+Unpaid links expire to `abandoned` after 30 minutes. Once a transaction reaches `successful`, `failed` or `abandoned`, it cannot be charged again. On completion, browser forms redirect (`303`) to `redirect_url` with `status`, `tx_ref` and `transaction_id` query parameters.
+
 ## Test with Postman or Postman CLI
 
 Import `postman/flutterpay.postman_collection.json` and `postman/local.postman_environment.json` into the Postman desktop app, or run the full flow from the terminal while `npm run dev` is running:
@@ -218,6 +231,8 @@ apps/api/
   src/merchants.ts        Signup and merchant details endpoints
   src/payments.ts         Payment creation endpoint and checkout link builder
   src/transactions.ts     Transaction serialization and paginated history endpoint
+  src/checkout.ts         Hosted checkout pages, charge/OTP handlers and redirects
+  src/fake-bank.ts        Test card and OTP simulation rules
   src/auth.ts             Secret key authentication middleware
   src/keys.ts             Random key generation and hashing
   src/db.ts               Prisma client and SQLite connection
@@ -225,11 +240,13 @@ apps/api/
   test/health.test.ts      HTTP and database integration tests
   test/merchants.test.ts   Signup, storage, authentication and failure tests
   test/payments.test.ts    Payment creation, uniqueness, history periods and pagination tests
+  test/checkout.test.ts    Checkout UI, fake bank, OTP retries, expiry and concurrency tests
 docs/
   flutterpay-plan.html     Visual roadmap for all phases
   2026-11-21-project-setup.md
   2026-11-21-phase-1-merchants.md
   2026-11-21-phase-2-payments.md
+  2026-11-21-phase-3-checkout.md
 postman/
   flutterpay.postman_collection.json
   local.postman_environment.json
@@ -245,4 +262,4 @@ GitHub Actions installs dependencies, applies migrations, checks types, runs the
 
 ## Next step
 
-Phase 3 adds the hosted checkout page and fake bank card simulator. It requires a separate go-ahead. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 2 implementation plan](docs/2026-11-21-phase-2-payments.md).
+Phase 4 adds the server-side transaction verification endpoint (`GET /v1/transactions/:id/verify`). See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 3 implementation plan](docs/2026-11-21-phase-3-checkout.md).

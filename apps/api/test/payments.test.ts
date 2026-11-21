@@ -63,6 +63,7 @@ test("payment creation and transaction history", async t => {
       status: "pending",
       customer_email: "buyer@example.com",
       card_last4: null,
+      failure_reason: null,
       redirect_url: "https://merchant.example/callback?step=done",
       expires_at: "2026-11-21T10:30:00.000Z",
       created_at: "2026-11-21T10:00:00.000Z",

@@ -55,6 +55,8 @@ model Transaction {
   status        TransactionStatus @default(PENDING)
   customerEmail String
   cardLast4     String?
+  otpAttempts   Int               @default(0)
+  failureReason String?
   redirectUrl   String
   expiresAt     DateTime
   createdAt     DateTime          @default(now())
