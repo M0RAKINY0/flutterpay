@@ -2,7 +2,7 @@
 
 FlutterPay is a payment gateway simulator for learning backend development. The finished project will let a merchant create a payment, send a customer to checkout, verify the result and receive a signed webhook through a Node SDK. All payments will be simulated.
 
-Phases 0 to 4 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments, serves the hosted checkout page with a fake bank card simulator, lists paginated merchant transaction history, and verifies transactions server-side with merchant isolation. Webhooks, the Node SDK and the merchant dashboard are the next phases.
+Phases 0 to 5 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments, serves the hosted checkout page with a fake bank card simulator, lists paginated merchant transaction history, verifies transactions server-side with merchant isolation, and delivers HMAC-signed `charge.completed` webhooks with retries and attempt logs. The Node SDK and the merchant dashboard are the next phases.
 
 ## Run it
 
@@ -37,12 +37,12 @@ Press Ctrl+C in the terminal to stop the server.
 | `npm run dev` | Start the API and restart it when you save code. |
 | `npm run db:studio` | Open Prisma's database viewer. |
 | `npm run db:migrate -- --name describe_change` | Create and apply a migration after you change the schema. |
-| `npm test` | Test health, merchant signup, API key authentication, payment creation, transaction history, hosted checkout and transaction verification against temporary SQLite databases. |
+| `npm test` | Test health, merchant signup, API key authentication, payment creation, transaction history, hosted checkout, transaction verification and webhooks against temporary SQLite databases. |
 | `npm run typecheck` | Check TypeScript without building. |
 | `npm run build` | Generate the database client and compile the API into apps/api/dist. |
 | `npm start` | Run the compiled API after building and applying migrations. |
 
-A migration is a saved SQL change to the database structure. The initial migration creates the Merchant table, Phase 1 adds ApiKey records linked to merchants, and Phase 2 adds Transaction records. Run `npm run db:deploy` after pulling new migrations.
+A migration is a saved SQL change to the database structure. The initial migration creates the Merchant table, Phase 1 adds ApiKey records linked to merchants, Phase 2 adds Transaction records, Phase 3 adds checkout fields, and Phase 5 adds merchant webhook settings and WebhookDelivery logs. Run `npm run db:deploy` after pulling new migrations.
 
 ## Register a merchant
 
@@ -179,6 +179,32 @@ Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/transactions/$($payment.transac
 
 `GET /v1/transactions/:id/verify` returns HTTP 200 with `{ transaction }` (including `status`, `amount_kobo`, `currency`, `tx_ref`, `card_last4` and `failure_reason`), lazily transitioning unpaid expired links to `abandoned`. A merchant can only verify its own transactions; requesting another merchant's transaction ID or an unknown ID returns `404 NOT_FOUND`.
 
+## Webhooks
+
+Configure a webhook URL for your merchant using your secret API key:
+
+```powershell
+$webhookBody = @{ webhook_url = "http://127.0.0.1:4000/webhook" } | ConvertTo-Json
+$webhook = Invoke-RestMethod -Method Put -Uri http://127.0.0.1:3000/v1/merchants/me/webhook -Headers $headers -ContentType application/json -Body $webhookBody
+$webhook.webhook
+```
+
+This generates a signing secret (`fp_whsec_test_<64 hex chars>`) and returns it once. Updating `webhook_url` later preserves the existing secret (returning `secret: null`) unless you pass `"rotate_secret": true`. Passing `"webhook_url": null` disables webhooks and cancels pending retries. `GET /v1/merchants/me/webhook` reports `{ url, secret_configured }` without exposing the secret.
+
+Pending retries always use the merchant's current `webhook_url` and `webhook_secret` together so changing endpoints or rotating secrets never sends a delivery to an old URL signed with a new secret. Because FlutterPay must compute outbound HMAC signatures, `webhookSecret` is stored recoverable in SQLite (unlike API keys, which are one-way SHA-256 hashed). Outbound webhook delivery intentionally permits loopback/`localhost` URLs for local testing; before exposing this API to untrusted merchants in production, enforce outbound IP/DNS SSRF filtering at connection time.
+
+When a payment completes (`successful` or `failed`), FlutterPay sends a `POST` request with `event: "charge.completed"` and these headers:
+- `X-FlutterPay-Event`: `charge.completed`
+- `X-FlutterPay-Event-Id`: stable event ID across retries for idempotent processing
+- `X-FlutterPay-Timestamp`: Unix timestamp in seconds
+- `X-FlutterPay-Signature`: `t=<timestamp>,v1=<hex_hmac_sha256>` computed over `${timestamp}.${rawBody}` using your webhook secret
+
+If your endpoint returns a non-`2xx` response or times out, FlutterPay logs the failed attempt and schedules retries after **1 minute**, **5 minutes**, and **30 minutes** (4 attempts total). Inspect delivery attempts with:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/webhooks/deliveries?transaction_id=$($payment.transaction.id)" -Headers $headers
+```
+
 ## API errors
 
 Errors contain a stable code and a readable message:
@@ -231,6 +257,7 @@ apps/api/
   src/merchants.ts        Signup and merchant details endpoints
   src/payments.ts         Payment creation endpoint and checkout link builder
   src/transactions.ts     Transaction serialization, paginated history and verify endpoint
+  src/webhooks.ts         HMAC webhook signing, retry queue worker and delivery log endpoint
   src/checkout.ts         Hosted checkout pages, charge/OTP handlers and redirects
   src/fake-bank.ts        Test card and OTP simulation rules
   src/auth.ts             Secret key authentication middleware
@@ -242,6 +269,7 @@ apps/api/
   test/payments.test.ts    Payment creation, uniqueness, history periods and pagination tests
   test/checkout.test.ts    Checkout UI, fake bank, OTP retries, expiry and concurrency tests
   test/verify.test.ts      Server-side verification, tenant isolation and expiry tests
+  test/webhooks.test.ts    HMAC signing, live delivery, retry backoff and isolation tests
 docs/
   flutterpay-plan.html     Visual roadmap for all phases
   2026-11-21-project-setup.md
@@ -249,6 +277,7 @@ docs/
   2026-11-21-phase-2-payments.md
   2026-11-21-phase-3-checkout.md
   2026-11-21-phase-4-verify.md
+  2026-11-21-phase-5-webhooks.md
 ```
 
 The root package.json uses npm workspaces. It forwards commands to the API package. We will add `packages/sdk-node` and `apps/dashboard` when those phases begin. SDK examples and integration tests will exercise the payment flow directly. A demo shop is outside the project scope.
@@ -279,4 +308,4 @@ Running `npm install` or `npm ci` installs the Git hooks automatically via the `
 
 ## Next step
 
-Phase 5 adds HMAC-signed `charge.completed` webhooks with retry scheduling and delivery logs. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 4 implementation plan](docs/2026-11-21-phase-4-verify.md).
+Phase 6 adds the Node SDK (`packages/sdk-node`) with `payments.create()`, `transactions.verify()`, and `webhooks.verify()`. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 5 implementation plan](docs/2026-11-21-phase-5-webhooks.md).

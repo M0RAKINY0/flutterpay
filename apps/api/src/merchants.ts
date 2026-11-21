@@ -5,6 +5,8 @@ import { z } from "zod";
 import { Prisma, type PrismaClient } from "./generated/prisma/client.js";
 import { requireSecretKey, type MerchantLocals } from "./auth.js";
 import { generateKey } from "./keys.js";
+import { isSafeHttpUrl } from "./payments.js";
+import { generateWebhookSecret } from "./webhooks.js";
 
 const signupInput = z.strictObject({
   business_name: z.string().trim().min(1).max(120),
@@ -12,8 +14,14 @@ const signupInput = z.strictObject({
   password: z.string().min(12).max(128),
 });
 
-export function merchantRoutes(db: PrismaClient) {
+const webhookConfigInput = z.strictObject({
+  webhook_url: z.union([z.string().trim().min(1).max(2048).refine(isSafeHttpUrl), z.null()]),
+  rotate_secret: z.boolean().optional(),
+});
+
+export function merchantRoutes(db: PrismaClient, options?: { now?: () => Date }) {
   const router = Router();
+  const now = options?.now ?? (() => new Date());
   const signupLimit = rateLimit({
     windowMs: 60_000,
     limit: 10,
@@ -69,6 +77,86 @@ export function merchantRoutes(db: PrismaClient) {
 
   router.get("/me", requireSecretKey(db), (_req, res: Response<unknown, MerchantLocals>) => {
     res.json({ merchant: res.locals.merchant });
+  });
+
+  router.get("/me/webhook", requireSecretKey(db), async (_req, res: Response<unknown, MerchantLocals>, next) => {
+    try {
+      const merchant = await db.merchant.findUniqueOrThrow({
+        where: { id: res.locals.merchant.id },
+        select: { webhookUrl: true, webhookSecret: true },
+      });
+      res.json({
+        webhook: {
+          url: merchant.webhookUrl,
+          secret_configured: merchant.webhookSecret !== null,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put("/me/webhook", requireSecretKey(db), json({ limit: "8kb" }), async (req, res: Response<unknown, MerchantLocals>, next) => {
+    if (!req.is("application/json")) {
+      res.status(415).json({ error: { code: "UNSUPPORTED_MEDIA_TYPE", message: "Send a JSON request body." } });
+      return;
+    }
+    const parsed = webhookConfigInput.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: {
+          code: "INVALID_INPUT",
+          message: "Provide an http(s) webhook_url without embedded credentials, or null to disable webhooks.",
+        },
+      });
+      return;
+    }
+
+    const { webhook_url, rotate_secret } = parsed.data;
+    const merchantId = res.locals.merchant.id;
+    try {
+      const updated = await db.$transaction(async prisma => {
+        if (webhook_url === null) {
+          await prisma.merchant.update({
+            where: { id: merchantId },
+            data: { webhookUrl: null, webhookSecret: null },
+          });
+          await prisma.webhookDelivery.updateMany({
+            where: {
+              status: "PENDING",
+              transaction: { merchantId },
+            },
+            data: {
+              status: "FAILED",
+              errorMessage: "Webhooks disabled by merchant",
+              attemptedAt: now(),
+              nextRetryAt: null,
+            },
+          });
+          return { url: null, secret: null, secret_configured: false };
+        }
+
+        const existing = await prisma.merchant.findUniqueOrThrow({
+          where: { id: merchantId },
+          select: { webhookSecret: true },
+        });
+        const shouldIssueSecret = !existing.webhookSecret || rotate_secret === true;
+        const secret = shouldIssueSecret ? generateWebhookSecret() : existing.webhookSecret!;
+        await prisma.merchant.update({
+          where: { id: merchantId },
+          data: { webhookUrl: webhook_url, webhookSecret: secret },
+        });
+        return {
+          url: webhook_url,
+          secret: shouldIssueSecret ? secret : null,
+          secret_configured: true,
+        };
+      });
+
+      res.json({ webhook: updated });
+    } catch (error) {
+      next(error);
+    }
   });
 
   return router;
