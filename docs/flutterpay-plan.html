@@ -113,14 +113,13 @@ a { color: var(--accent); }
 <section>
   <span class="eyebrow">The pieces</span>
   <h2>What you're building</h2>
-  <p>Six parts. You build every box. The demo shop matters most for learning: you play the merchant too, so you feel what Flutterwave's customers feel.</p>
+  <p>Build the payment gateway, checkout, fake bank, webhook sender, dashboard and Node SDK. Exercise the API with requests and SDK examples. No demo shop is required.</p>
   <div class="panel">
 <pre class="mermaid">
 flowchart LR
-  subgraph Merchant["Merchant side (you, pretending)"]
-    Shop["Demo shop backend"]
+  subgraph Tests["Examples and integration tests"]
     SDK["FlutterPay Node SDK"]
-    Shop --- SDK
+    Receiver["Webhook test receiver"]
   end
   subgraph FP["FlutterPay (you, for real)"]
     API["FlutterPay API"]
@@ -137,7 +136,7 @@ flowchart LR
   API --- DB
   Checkout --- DB
   Dash --- DB
-  Worker -- "signed POST" --> Shop
+  Worker -- "signed POST" --> Receiver
   DB --> Worker
 </pre>
   </div>
@@ -146,31 +145,32 @@ flowchart LR
 <section>
   <span class="eyebrow">The main flow</span>
   <h2>One payment, end to end</h2>
-  <p>This is the Flutterwave flow you just learned, with FlutterPay in the middle. Every arrow is something you'll write.</p>
+  <p>Create a payment through the API or SDK, open its checkout link, then verify it. A test receiver checks webhook delivery without a separate shop application.</p>
   <div class="panel">
 <pre class="mermaid">
 sequenceDiagram
   autonumber
   actor C as Customer
-  participant S as Demo shop
+  participant S as API request or SDK example
   participant A as FlutterPay API
   participant P as Checkout page
   participant B as Fake bank
-  C->>S: Click "Pay ₦5,000"
+  participant W as Webhook test receiver
+  C->>S: Create a test payment
   S->>A: POST /v1/payments (secret key, tx_ref, amount)
   A-->>S: { id, link }
-  S-->>C: Redirect to link
+  S-->>C: Open checkout link
   C->>P: Enter test card
   P->>B: Charge 500000 kobo
   B-->>P: Approved, OTP needed
   C->>P: Enter OTP
   P->>A: Mark transaction successful
-  P-->>C: Redirect to shop's redirect_url
-  C->>S: Land on /payment/done?transaction_id=...
+  P-->>C: Redirect to configured test callback URL
+  C->>S: Verify the transaction ID
   S->>A: GET /v1/transactions/:id/verify
   A-->>S: { status: successful, amount, tx_ref }
-  A--)S: Webhook: charge.completed (signed)
-  S-->>A: 200 OK
+  A--)W: Webhook: charge.completed (signed)
+  W-->>A: 200 OK
 </pre>
   </div>
 </section>
@@ -249,11 +249,11 @@ erDiagram
 <section>
   <span class="eyebrow">Roadmap</span>
   <h2>Build order</h2>
-  <p>Nine phases, each small enough to finish in a sitting or two. Each one ends with one test that proves it works. Don't start a phase until the one before it passes.</p>
+  <p>Eight phases. Each one ends with a check that proves it works. Don't start a phase until the one before it passes.</p>
   <div class="track" aria-hidden="true">
     <div>Phases 0 to 5 · the money flow</div>
-    <div>6 to 7 · developer side</div>
-    <div>8 · dashboard</div>
+    <div>6 · Node SDK</div>
+    <div>7 · dashboard</div>
   </div>
   <div class="phases">
 
@@ -291,7 +291,7 @@ erDiagram
       <span class="num">Phase 3</span>
       <h3>Checkout page and fake bank</h3>
       <dl>
-        <div><dt>Build</dt><dd>The page customers see. A card form, the fake bank's rules, an OTP step, then a redirect back to the shop.</dd></div>
+        <div><dt>Build</dt><dd>The page customers see. A card form, the fake bank's rules, an OTP step, then a redirect to the configured callback URL.</dd></div>
         <div><dt>Learn</dt><dd>State machines, why card numbers never get saved.</dd></div>
       </dl>
       <p class="done"><b>Done when</b> the decline test card marks the transaction <code>failed</code>.</p>
@@ -324,21 +324,11 @@ erDiagram
         <div><dt>Build</dt><dd>A package merchants install: <code>payments.create()</code>, <code>transactions.verify()</code>, <code>webhooks.verify()</code>.</dd></div>
         <div><dt>Learn</dt><dd>Designing a library other developers use, typed errors.</dd></div>
       </dl>
-      <p class="done"><b>Done when</b> <code>payments.create()</code> returns a link from the running API.</p>
+      <p class="done"><b>Done when</b> an SDK example creates a payment against the running API, the checkout accepts a test card, and verification returns the expected status, reference, amount and currency. Integration tests check webhook signatures and duplicate delivery handling.</p>
     </article>
 
     <article class="phase">
       <span class="num">Phase 7</span>
-      <h3>Demo shop</h3>
-      <dl>
-        <div><dt>Build</dt><dd>A tiny store that sells one item, uses only the SDK, and does all four verify checks.</dd></div>
-        <div><dt>Learn</dt><dd>The merchant's side, the part you'd do at a real job.</dd></div>
-      </dl>
-      <p class="done"><b>Done when</b> the order flips to paid when the webhook arrives.</p>
-    </article>
-
-    <article class="phase">
-      <span class="num">Phase 8</span>
       <h3>Merchant dashboard</h3>
       <dl>
         <div><dt>Build</dt><dd>Log in, see transactions, see webhook attempts, set the webhook URL, replace a leaked key.</dd></div>
@@ -399,8 +389,7 @@ erDiagram
 <pre class="tree">flutterpay/
 ├── apps/
 │   ├── api/          <span class="c"># FlutterPay server: API, checkout page, fake bank, webhook sender</span>
-│   ├── dashboard/    <span class="c"># merchant dashboard (phase 8)</span>
-│   └── demo-shop/    <span class="c"># pretend merchant that uses the SDK (phase 7)</span>
+│   └── dashboard/    <span class="c"># merchant dashboard (phase 7)</span>
 ├── packages/
 │   └── sdk-node/     <span class="c"># the package merchants install (phase 6)</span>
 ├── docs/
@@ -426,6 +415,7 @@ erDiagram
   <span class="eyebrow">Out of scope</span>
   <h2>Not building</h2>
   <ul class="plain">
+    <li>A demo shop or separate merchant application</li>
     <li>Anything with real money, real cards or real banks</li>
     <li>Bank transfer, USSD and mobile money payment options</li>
     <li>Fraud checks, KYC and business verification</li>

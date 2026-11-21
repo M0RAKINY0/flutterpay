@@ -75,7 +75,7 @@ docs/
   2026-11-21-project-setup.md
 ```
 
-The root package.json uses npm workspaces. It forwards commands to the API package. We will add `packages/sdk-node`, `apps/demo-shop` and `apps/dashboard` when those phases begin.
+The root package.json uses npm workspaces. It forwards commands to the API package. We will add `packages/sdk-node` and `apps/dashboard` when those phases begin. SDK examples and integration tests will exercise the payment flow directly. A demo shop is outside the project scope.
 
 Prisma uses its [documented SQLite adapter](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/sqlite). The generated client and compiled JavaScript stay out of Git. Commit changes to the schema and its migration together. The lockfile records dependency versions for local installs and CI.
 
