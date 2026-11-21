@@ -11,6 +11,7 @@ export const transactionSelect = {
   status: true,
   customerEmail: true,
   cardLast4: true,
+  failureReason: true,
   redirectUrl: true,
   expiresAt: true,
   createdAt: true,
@@ -27,10 +28,25 @@ export function serializeTransaction(transaction: SelectedTransaction) {
     status: transaction.status.toLowerCase(),
     customer_email: transaction.customerEmail,
     card_last4: transaction.cardLast4,
+    failure_reason: transaction.failureReason,
     redirect_url: transaction.redirectUrl,
     expires_at: transaction.expiresAt.toISOString(),
     created_at: transaction.createdAt.toISOString(),
   };
+}
+
+export async function expireTransactionIfNeeded(db: PrismaClient, id: string, now: Date) {
+  await db.transaction.updateMany({
+    where: {
+      id,
+      status: { in: ["PENDING", "AWAITING_OTP"] },
+      expiresAt: { lte: now },
+    },
+    data: {
+      status: "ABANDONED",
+      failureReason: "Payment link expired",
+    },
+  });
 }
 
 type PeriodType = "all" | "daily" | "weekly" | "monthly";
