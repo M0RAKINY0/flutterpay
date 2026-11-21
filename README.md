@@ -259,6 +259,24 @@ The root package.json overrides Prisma config's Effect dependency to 3.22.5. Pri
 
 GitHub Actions installs dependencies, applies migrations, checks types, runs the tests and builds the API on Linux and Windows.
 
+## Commit messages
+
+This repository uses [Conventional Commits](https://www.conventionalcommits.org/) enforced locally with Husky + Commitlint (`.husky/commit-msg`, `commitlint.config.mjs`) and in CI (`.github/workflows/commitlint.yml`):
+
+```text
+<type>(optional-scope): <short description>
+```
+
+Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`, `style`, `revert`.
+
+Examples:
+
+- `feat(api): add webhook signing secret generation`
+- `fix(checkout): reject expired card submissions`
+- `docs: update local setup instructions`
+
+Running `npm install` or `npm ci` installs the Git hooks automatically via the `prepare` script.
+
 ## Next step
 
 Phase 5 adds HMAC-signed `charge.completed` webhooks with retry scheduling and delivery logs. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 4 implementation plan](docs/2026-11-21-phase-4-verify.md).
