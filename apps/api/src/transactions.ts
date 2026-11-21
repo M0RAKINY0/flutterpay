@@ -35,10 +35,16 @@ export function serializeTransaction(transaction: SelectedTransaction) {
   };
 }
 
-export async function expireTransactionIfNeeded(db: PrismaClient, id: string, now: Date) {
+export async function expireTransactionIfNeeded(
+  db: PrismaClient,
+  id: string,
+  now: Date,
+  merchantId?: string,
+) {
   await db.transaction.updateMany({
     where: {
       id,
+      ...(merchantId ? { merchantId } : {}),
       status: { in: ["PENDING", "AWAITING_OTP"] },
       expiresAt: { lte: now },
     },
@@ -173,6 +179,30 @@ export function transactionRoutes(db: PrismaClient, options?: { now?: () => Date
           has_previous: page > 1 && totalPages > 0,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/:id/verify", requireSecretKey(db), async (req, res: Response<unknown, MerchantLocals>, next) => {
+    const id = typeof req.params.id === "string" ? req.params.id : "";
+    const merchantId = res.locals.merchant.id;
+
+    try {
+      await expireTransactionIfNeeded(db, id, now(), merchantId);
+      const transaction = await db.transaction.findFirst({
+        where: { id, merchantId },
+        select: transactionSelect,
+      });
+
+      if (!transaction) {
+        res.status(404).json({
+          error: { code: "NOT_FOUND", message: "Transaction not found." },
+        });
+        return;
+      }
+
+      res.json({ transaction: serializeTransaction(transaction) });
     } catch (error) {
       next(error);
     }

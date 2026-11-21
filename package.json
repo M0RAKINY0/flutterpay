@@ -14,7 +14,6 @@
     "start": "npm run start --workspace=@flutterpay/api",
     "typecheck": "npm run typecheck --workspace=@flutterpay/api",
     "test": "npm run test --workspace=@flutterpay/api",
-    "test:postman": "postman collection run postman/flutterpay.postman_collection.json -e postman/local.postman_environment.json --no-report-events",
     "db:generate": "npm run db:generate --workspace=@flutterpay/api",
     "db:migrate": "npm run db:migrate --workspace=@flutterpay/api --",
     "db:deploy": "npm run db:deploy --workspace=@flutterpay/api",
