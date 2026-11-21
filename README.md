@@ -2,7 +2,7 @@
 
 FlutterPay is a payment gateway simulator for learning backend development. The finished project will let a merchant create a payment, send a customer to checkout, verify the result and receive a signed webhook through a Node SDK. All payments will be simulated.
 
-Phases 0 and 1 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants and authenticates secret API keys. Payment creation, checkout, webhooks and the SDK are the next phases.
+Phases 0, 1 and 2 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments and lists paginated merchant transaction history. Hosted checkout, verification, webhooks and the SDK are the next phases.
 
 ## Run it
 
@@ -37,12 +37,12 @@ Press Ctrl+C in the terminal to stop the server.
 | `npm run dev` | Start the API and restart it when you save code. |
 | `npm run db:studio` | Open Prisma's database viewer. |
 | `npm run db:migrate -- --name describe_change` | Create and apply a migration after you change the schema. |
-| `npm test` | Test health, merchant signup and API key authentication against temporary SQLite databases. |
+| `npm test` | Test health, merchant signup, API key authentication, payment creation and transaction history against temporary SQLite databases. |
 | `npm run typecheck` | Check TypeScript without building. |
 | `npm run build` | Generate the database client and compile the API into apps/api/dist. |
 | `npm start` | Run the compiled API after building and applying migrations. |
 
-A migration is a saved SQL change to the database structure. The initial migration creates the Merchant table. The Phase 1 migration adds ApiKey records linked to merchants. Run `npm run db:deploy` after pulling new migrations.
+A migration is a saved SQL change to the database structure. The initial migration creates the Merchant table, Phase 1 adds ApiKey records linked to merchants, and Phase 2 adds Transaction records. Run `npm run db:deploy` after pulling new migrations.
 
 ## Register a merchant
 
@@ -102,6 +102,60 @@ Merchant responses use `Cache-Control: no-store`. The database stores [Argon2id 
 
 Input validation uses [Zod](https://zod.dev/api). Signup throttling uses [express-rate-limit](https://express-rate-limit.mintlify.app/overview). Node's crypto module generates 32 random bytes for each key and computes its SHA-256 hash.
 
+## Create a payment
+
+Using the `$headers` from above, create a pending payment (amount is in whole kobo, so ₦5,000 is `500000`):
+
+```powershell
+$paymentBody = @{
+  tx_ref = "order-1042"
+  amount_kobo = 500000
+  currency = "NGN"
+  customer_email = "buyer@example.com"
+  redirect_url = "http://127.0.0.1:4000/callback"
+} | ConvertTo-Json
+
+$payment = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/v1/payments -Headers $headers -ContentType application/json -Body $paymentBody
+$payment
+```
+
+`POST /v1/payments` returns HTTP 201 with `{ transaction, link }`. Reusing the same `tx_ref` for the same merchant returns `409 DUPLICATE_TX_REF`. Two different merchants may use the same `tx_ref`. Payment links expire 30 minutes after creation (enforced when hosted checkout is added in Phase 3).
+
+Payment creation accepts exactly these fields:
+
+| Field | Rules |
+| --- | --- |
+| `tx_ref` | 1 to 100 printable characters after trimming. Unique per merchant. |
+| `amount_kobo` | Whole integer from `100` (₦1) to `100000000` (₦1,000,000). |
+| `currency` | Must be `"NGN"`. |
+| `customer_email` | Valid email, at most 254 characters after trimming. Stored lowercase. |
+| `redirect_url` | Valid `http://` or `https://` URL without embedded credentials, at most 2048 characters. |
+
+## List transaction history
+
+Fetch paginated transactions belonging to the authenticated merchant, optionally filtered by UTC calendar period (`daily`, `weekly` Monday–Sunday, or `monthly`):
+
+```powershell
+# Latest page across all transactions
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/transactions?page=1&limit=20" -Headers $headers
+
+# Today's transactions (UTC)
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/transactions?period=daily" -Headers $headers
+
+# Specific week or month (UTC)
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/transactions?period=weekly&date=2026-11-21" -Headers $headers
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/transactions?period=monthly&date=2026-11-01&page=1&limit=10" -Headers $headers
+```
+
+| Query parameter | Rules |
+| --- | --- |
+| `period` | Optional: `all` (default), `daily`, `weekly` (ISO Mon–Sun UTC) or `monthly` (UTC calendar month). |
+| `date` | Optional `YYYY-MM-DD` UTC anchor date. Only allowed with `daily`, `weekly` or `monthly` (defaults to today UTC). |
+| `page` | Optional positive integer, `1` to `10000` (default `1`). |
+| `limit` | Optional positive integer, `1` to `100` (default `20`). |
+
+The response returns `{ transactions, period, pagination }`, ordered newest first, and never exposes another merchant's transactions.
+
 ## API errors
 
 Errors contain a stable code and a readable message:
@@ -120,6 +174,7 @@ Errors contain a stable code and a readable message:
 | 400 | `INVALID_INPUT` | Invalid fields or malformed JSON. |
 | 401 | `UNAUTHORIZED` | Missing or unusable secret key. |
 | 409 | `EMAIL_EXISTS` | The normalized email already belongs to a merchant. |
+| 409 | `DUPLICATE_TX_REF` | This merchant already created a transaction with the same `tx_ref`. |
 | 413 | `BODY_TOO_LARGE` | JSON body exceeds 8 KB. |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Unsupported content type, charset or encoding. |
 | 429 | `RATE_LIMITED` | Signup limit reached. Wait for the Retry-After interval. |
@@ -138,6 +193,7 @@ Copy-Item apps/api/.env.example apps/api/.env
 | `DATABASE_URL` | `file:./prisma/dev.db` | SQLite database file. |
 | `HOST` | `127.0.0.1` | Bind to this computer for local development. |
 | `PORT` | `3000` | HTTP port. |
+| `APP_BASE_URL` | `http://<HOST>:<PORT>` | Base URL used when generating checkout links. |
 
 Run commands from the repository root using the npm scripts above. npm runs the API scripts inside `apps/api`, so Prisma CLI and the application resolve the database path to the same file, `apps/api/prisma/dev.db`. Both load `apps/api/.env`. The file contains local settings and stays out of Git, as does the database.
 
@@ -149,16 +205,20 @@ apps/api/
   prisma.config.ts        Prisma CLI configuration
   src/app.ts              Express routes
   src/merchants.ts        Signup and merchant details endpoints
+  src/payments.ts         Payment creation endpoint and checkout link builder
+  src/transactions.ts     Transaction serialization and paginated history endpoint
   src/auth.ts             Secret key authentication middleware
   src/keys.ts             Random key generation and hashing
   src/db.ts               Prisma client and SQLite connection
   src/server.ts           HTTP listener and shutdown
   test/health.test.ts      HTTP and database integration tests
   test/merchants.test.ts   Signup, storage, authentication and failure tests
+  test/payments.test.ts    Payment creation, uniqueness, history periods and pagination tests
 docs/
   flutterpay-plan.html     Visual roadmap for all phases
   2026-11-21-project-setup.md
   2026-11-21-phase-1-merchants.md
+  2026-11-21-phase-2-payments.md
 ```
 
 The root package.json uses npm workspaces. It forwards commands to the API package. We will add `packages/sdk-node` and `apps/dashboard` when those phases begin. SDK examples and integration tests will exercise the payment flow directly. A demo shop is outside the project scope.
@@ -171,4 +231,4 @@ GitHub Actions installs dependencies, applies migrations, checks types, runs the
 
 ## Next step
 
-Phase 2 adds payment creation. It requires a separate go-ahead. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 1 implementation plan](docs/2026-11-21-phase-1-merchants.md).
+Phase 3 adds the hosted checkout page and fake bank card simulator. It requires a separate go-ahead. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 2 implementation plan](docs/2026-11-21-phase-2-payments.md).

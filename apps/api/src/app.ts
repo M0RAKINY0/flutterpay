@@ -1,8 +1,15 @@
 import express, { type ErrorRequestHandler } from "express";
 import type { PrismaClient } from "./generated/prisma/client.js";
 import { merchantRoutes } from "./merchants.js";
+import { paymentRoutes } from "./payments.js";
+import { transactionRoutes } from "./transactions.js";
 
-export function createApp(db: PrismaClient) {
+export type AppOptions = {
+  appBaseUrl?: string;
+  now?: () => Date;
+};
+
+export function createApp(db: PrismaClient, options?: AppOptions) {
   const app = express();
   app.disable("x-powered-by");
   app.get("/health", async (_req, res) => {
@@ -14,6 +21,8 @@ export function createApp(db: PrismaClient) {
     }
   });
   app.use("/v1/merchants", merchantRoutes(db));
+  app.use("/v1/payments", paymentRoutes(db, options));
+  app.use("/v1/transactions", transactionRoutes(db, options));
 
   const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     res.set("Cache-Control", "no-store");
