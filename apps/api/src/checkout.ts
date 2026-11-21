@@ -4,6 +4,13 @@ import type { PrismaClient } from "./generated/prisma/client.js";
 import { chargeCard, MAX_OTP_ATTEMPTS, parseOtpInput, validateCardInput, verifyOtp } from "./fake-bank.js";
 import { normalizeBaseUrl } from "./payments.js";
 import { expireTransactionIfNeeded, serializeTransaction, transactionSelect, type SelectedTransaction } from "./transactions.js";
+import {
+  createWebhookTracker,
+  deliverWebhookAttempt,
+  enqueueChargeCompletedWebhook,
+  type WebhookSender,
+  type WebhookTracker,
+} from "./webhooks.js";
 
 type CheckoutRecord = SelectedTransaction & {
   otpAttempts: number;
@@ -189,11 +196,31 @@ function sendTerminalResponse(req: Request, res: Response, tx: SelectedTransacti
   res.redirect(303, redirect);
 }
 
-export function checkoutRoutes(db: PrismaClient, options?: { appBaseUrl?: string; now?: () => Date }) {
+export function checkoutRoutes(
+  db: PrismaClient,
+  options?: {
+    appBaseUrl?: string;
+    now?: () => Date;
+    webhookSender?: WebhookSender;
+    autoDeliverWebhooks?: boolean;
+    webhookTracker?: WebhookTracker;
+  },
+) {
   const router = Router();
   const baseUrl = normalizeBaseUrl(options?.appBaseUrl ?? "http://127.0.0.1:3000");
   const now = options?.now ?? (() => new Date());
+  const autoDeliverWebhooks = options?.autoDeliverWebhooks ?? true;
+  const webhookTracker = options?.webhookTracker ?? createWebhookTracker();
   const parsers = [urlencoded({ extended: false, limit: "8kb" }), json({ limit: "8kb" })];
+
+  function dispatchWebhook(deliveryId: string | null) {
+    if (deliveryId && autoDeliverWebhooks) {
+      webhookTracker.track(
+        deliverWebhookAttempt(db, deliveryId, { now, sender: options?.webhookSender }),
+        `delivery=${deliveryId}`,
+      );
+    }
+  }
 
   router.use((_req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -289,13 +316,21 @@ export function checkoutRoutes(db: PrismaClient, options?: { appBaseUrl?: string
             ? { status: "AWAITING_OTP" as const, cardLast4: card.last4, failureReason: null }
             : { status: "FAILED" as const, cardLast4: card.last4, failureReason: decision.reason };
 
-      // Conditional update ensures only one concurrent charge can leave PENDING.
-      const updated = await db.transaction.updateMany({
-        where: { id, status: "PENDING", expiresAt: { gt: currentTime } },
-        data: nextData,
+      // Atomically transition from PENDING and enqueue the initial webhook delivery in one transaction.
+      const outcome = await db.$transaction(async prisma => {
+        const updated = await prisma.transaction.updateMany({
+          where: { id, status: "PENDING", expiresAt: { gt: currentTime } },
+          data: nextData,
+        });
+        if (updated.count === 0) return null;
+        const finalTx = await prisma.transaction.findUniqueOrThrow({ where: { id }, select: transactionSelect });
+        const delivery = finalTx.status === "SUCCESSFUL" || finalTx.status === "FAILED"
+          ? await enqueueChargeCompletedWebhook(prisma, finalTx.id, currentTime)
+          : null;
+        return { finalTx, deliveryId: delivery?.id ?? null };
       });
 
-      if (updated.count === 0) {
+      if (!outcome) {
         await expireTransactionIfNeeded(db, id, currentTime);
         const latest = await db.transaction.findUniqueOrThrow({ where: { id }, select: transactionSelect });
         if (prefersJson(req)) {
@@ -309,7 +344,7 @@ export function checkoutRoutes(db: PrismaClient, options?: { appBaseUrl?: string
         return;
       }
 
-      const finalTx = await db.transaction.findUniqueOrThrow({ where: { id }, select: transactionSelect });
+      const { finalTx, deliveryId } = outcome;
       if (finalTx.status === "AWAITING_OTP") {
         if (prefersJson(req)) {
           res.json({
@@ -323,6 +358,7 @@ export function checkoutRoutes(db: PrismaClient, options?: { appBaseUrl?: string
         return;
       }
 
+      dispatchWebhook(deliveryId);
       sendTerminalResponse(req, res, finalTx);
     } catch (error) {
       next(error);
@@ -374,11 +410,17 @@ export function checkoutRoutes(db: PrismaClient, options?: { appBaseUrl?: string
       }
 
       if (verifyOtp(otp)) {
-        const updated = await db.transaction.updateMany({
-          where: { id, status: "AWAITING_OTP", expiresAt: { gt: currentTime } },
-          data: { status: "SUCCESSFUL", failureReason: null },
+        const outcome = await db.$transaction(async prisma => {
+          const updated = await prisma.transaction.updateMany({
+            where: { id, status: "AWAITING_OTP", expiresAt: { gt: currentTime } },
+            data: { status: "SUCCESSFUL", failureReason: null },
+          });
+          if (updated.count === 0) return null;
+          const finalTx = await prisma.transaction.findUniqueOrThrow({ where: { id }, select: transactionSelect });
+          const delivery = await enqueueChargeCompletedWebhook(prisma, finalTx.id, currentTime);
+          return { finalTx, deliveryId: delivery?.id ?? null };
         });
-        if (updated.count === 0) {
+        if (!outcome) {
           await expireTransactionIfNeeded(db, id, currentTime);
           const latest = await db.transaction.findUniqueOrThrow({ where: { id }, select: transactionSelect });
           if (prefersJson(req)) {
@@ -391,13 +433,13 @@ export function checkoutRoutes(db: PrismaClient, options?: { appBaseUrl?: string
           res.redirect(303, `/pay/${encodeURIComponent(id)}`);
           return;
         }
-        const finalTx = await db.transaction.findUniqueOrThrow({ where: { id }, select: transactionSelect });
-        sendTerminalResponse(req, res, finalTx);
+        dispatchWebhook(outcome.deliveryId);
+        sendTerminalResponse(req, res, outcome.finalTx);
         return;
       }
 
-      // Atomically increment attempts and fail on the 3rd invalid OTP.
-      const nextRecord = await db.$transaction(async prisma => {
+      // Atomically increment attempts, fail on the 3rd invalid OTP and enqueue the failure webhook together.
+      const nextOutcome = await db.$transaction(async prisma => {
         const incremented = await prisma.transaction.updateMany({
           where: { id, status: "AWAITING_OTP", expiresAt: { gt: currentTime }, otpAttempts: { lt: MAX_OTP_ATTEMPTS } },
           data: { otpAttempts: { increment: 1 } },
@@ -405,16 +447,18 @@ export function checkoutRoutes(db: PrismaClient, options?: { appBaseUrl?: string
         if (incremented.count === 0) return null;
         const current = await prisma.transaction.findUniqueOrThrow({ where: { id }, select: checkoutSelect });
         if (current.otpAttempts >= MAX_OTP_ATTEMPTS) {
-          return prisma.transaction.update({
+          const failedRecord = await prisma.transaction.update({
             where: { id },
             data: { status: "FAILED", failureReason: "Too many invalid OTP attempts" },
             select: checkoutSelect,
           });
+          const delivery = await enqueueChargeCompletedWebhook(prisma, failedRecord.id, currentTime);
+          return { record: failedRecord, deliveryId: delivery?.id ?? null };
         }
-        return current;
+        return { record: current, deliveryId: null };
       });
 
-      if (!nextRecord) {
+      if (!nextOutcome) {
         await expireTransactionIfNeeded(db, id, currentTime);
         const latest = await db.transaction.findUniqueOrThrow({ where: { id }, select: transactionSelect });
         if (prefersJson(req)) {
@@ -428,7 +472,9 @@ export function checkoutRoutes(db: PrismaClient, options?: { appBaseUrl?: string
         return;
       }
 
+      const { record: nextRecord, deliveryId } = nextOutcome;
       if (nextRecord.status === "FAILED") {
+        dispatchWebhook(deliveryId);
         sendTerminalResponse(req, res, nextRecord);
         return;
       }
