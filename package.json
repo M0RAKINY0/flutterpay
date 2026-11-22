@@ -17,10 +17,10 @@
   },
   "scripts": {
     "dev": "npm run dev --workspace=@flutterpay/api",
-    "build": "npm run build --workspace=@flutterpay/api",
+    "build": "npm run build --workspace=@flutterpay/api && npm run build --workspace=@flutterpay/sdk-node",
     "start": "npm run start --workspace=@flutterpay/api",
-    "typecheck": "npm run typecheck --workspace=@flutterpay/api",
-    "test": "npm run test --workspace=@flutterpay/api",
+    "typecheck": "npm run typecheck --workspace=@flutterpay/api && npm run typecheck --workspace=@flutterpay/sdk-node",
+    "test": "npm run test --workspace=@flutterpay/api && npm run test --workspace=@flutterpay/sdk-node",
     "db:generate": "npm run db:generate --workspace=@flutterpay/api",
     "db:migrate": "npm run db:migrate --workspace=@flutterpay/api --",
     "db:deploy": "npm run db:deploy --workspace=@flutterpay/api",
