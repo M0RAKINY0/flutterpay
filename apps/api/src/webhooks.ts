@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Router, type Response } from "express";
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "./generated/prisma/client.js";
-import { requireSecretKey, type MerchantLocals } from "./auth.js";
+import { requireMerchantAuth, type MerchantLocals } from "./auth.js";
 import { serializeTransaction, transactionSelect } from "./transactions.js";
 
 export type WebhookDbClient = PrismaClient | Prisma.TransactionClient;
@@ -453,15 +453,16 @@ const listDeliveriesQuery = z.strictObject({
   limit: parsePositiveInt(100).default(20),
 });
 
-export function webhookRoutes(db: PrismaClient) {
+export function webhookRoutes(db: PrismaClient, options?: { now?: () => Date }) {
   const router = Router();
+  const now = options?.now ?? (() => new Date());
 
   router.use((_req, res, next) => {
     res.set("Cache-Control", "no-store");
     next();
   });
 
-  router.get("/deliveries", requireSecretKey(db), async (req, res: Response<unknown, MerchantLocals>, next) => {
+  router.get("/deliveries", requireMerchantAuth(db, { now }), async (req, res: Response<unknown, MerchantLocals>, next) => {
     const parsed = listDeliveriesQuery.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({

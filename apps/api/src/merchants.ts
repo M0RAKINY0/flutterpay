@@ -3,9 +3,10 @@ import { json, Router, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 import { Prisma, type PrismaClient } from "./generated/prisma/client.js";
-import { requireSecretKey, type MerchantLocals } from "./auth.js";
+import { requireMerchantAuth, type MerchantLocals } from "./auth.js";
 import { generateKey } from "./keys.js";
 import { isSafeHttpUrl } from "./payments.js";
+import { resolveRateLimitKey } from "./sessions.js";
 import { generateWebhookSecret } from "./webhooks.js";
 
 const signupInput = z.strictObject({
@@ -19,14 +20,23 @@ const webhookConfigInput = z.strictObject({
   rotate_secret: z.boolean().optional(),
 });
 
-export function merchantRoutes(db: PrismaClient, options?: { now?: () => Date }) {
+const rotateKeyInput = z.strictObject({
+  kind: z.enum(["secret", "public"]),
+});
+
+export function merchantRoutes(
+  db: PrismaClient,
+  options?: { now?: () => Date; trustedProxySecret?: string },
+) {
   const router = Router();
   const now = options?.now ?? (() => new Date());
+  const trustedProxySecret = options?.trustedProxySecret?.trim() || undefined;
   const signupLimit = rateLimit({
     windowMs: 60_000,
     limit: 10,
     standardHeaders: "draft-8",
     legacyHeaders: false,
+    keyGenerator: req => resolveRateLimitKey(req, trustedProxySecret),
     message: { error: { code: "RATE_LIMITED", message: "Too many signup requests. Please try again later." } },
   });
 
@@ -75,11 +85,100 @@ export function merchantRoutes(db: PrismaClient, options?: { now?: () => Date })
     }
   });
 
-  router.get("/me", requireSecretKey(db), (_req, res: Response<unknown, MerchantLocals>) => {
+  router.get("/me", requireMerchantAuth(db, { now }), (_req, res: Response<unknown, MerchantLocals>) => {
     res.json({ merchant: res.locals.merchant });
   });
 
-  router.get("/me/webhook", requireSecretKey(db), async (_req, res: Response<unknown, MerchantLocals>, next) => {
+  router.get("/me/keys", requireMerchantAuth(db, { now }), async (_req, res: Response<unknown, MerchantLocals>, next) => {
+    try {
+      const keys = await db.apiKey.findMany({
+        where: { merchantId: res.locals.merchant.id },
+        select: {
+          id: true,
+          kind: true,
+          prefix: true,
+          createdAt: true,
+          revokedAt: true,
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      });
+      res.json({
+        keys: keys.map(key => ({
+          id: key.id,
+          kind: key.kind.toLowerCase(),
+          prefix: key.prefix,
+          active: key.revokedAt === null,
+          created_at: key.createdAt.toISOString(),
+          revoked_at: key.revokedAt ? key.revokedAt.toISOString() : null,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post(
+    "/me/keys/rotate",
+    requireMerchantAuth(db, { now, requireCsrf: true }),
+    json({ limit: "8kb" }),
+    async (req, res: Response<unknown, MerchantLocals>, next) => {
+      if (!req.is("application/json")) {
+        res.status(415).json({ error: { code: "UNSUPPORTED_MEDIA_TYPE", message: "Send a JSON request body." } });
+        return;
+      }
+      const parsed = rotateKeyInput.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: { code: "INVALID_INPUT", message: 'Provide kind as "secret" or "public".' },
+        });
+        return;
+      }
+
+      const dbKind = parsed.data.kind === "secret" ? "SECRET" : "PUBLIC";
+      const merchantId = res.locals.merchant.id;
+      const issuedAt = now();
+      const generated = generateKey(dbKind);
+
+      try {
+        const result = await db.$transaction(async prisma => {
+          const revoked = await prisma.apiKey.updateMany({
+            where: {
+              merchantId,
+              kind: dbKind,
+              revokedAt: null,
+            },
+            data: { revokedAt: issuedAt },
+          });
+
+          const created = await prisma.apiKey.create({
+            data: {
+              merchantId,
+              ...generated.record,
+              createdAt: issuedAt,
+            },
+            select: { id: true, kind: true, prefix: true, createdAt: true },
+          });
+
+          return { created, revokedCount: revoked.count };
+        });
+
+        res.status(201).json({
+          key: {
+            id: result.created.id,
+            kind: result.created.kind.toLowerCase(),
+            prefix: result.created.prefix,
+            value: generated.key,
+            created_at: result.created.createdAt.toISOString(),
+          },
+          revoked_count: result.revokedCount,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.get("/me/webhook", requireMerchantAuth(db, { now }), async (_req, res: Response<unknown, MerchantLocals>, next) => {
     try {
       const merchant = await db.merchant.findUniqueOrThrow({
         where: { id: res.locals.merchant.id },
@@ -96,7 +195,11 @@ export function merchantRoutes(db: PrismaClient, options?: { now?: () => Date })
     }
   });
 
-  router.put("/me/webhook", requireSecretKey(db), json({ limit: "8kb" }), async (req, res: Response<unknown, MerchantLocals>, next) => {
+  router.put(
+    "/me/webhook",
+    requireMerchantAuth(db, { now, requireCsrf: true }),
+    json({ limit: "8kb" }),
+    async (req, res: Response<unknown, MerchantLocals>, next) => {
     if (!req.is("application/json")) {
       res.status(415).json({ error: { code: "UNSUPPORTED_MEDIA_TYPE", message: "Send a JSON request body." } });
       return;
