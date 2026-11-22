@@ -2,7 +2,7 @@
 
 FlutterPay is a payment gateway simulator for learning backend development. The finished project will let a merchant create a payment, send a customer to checkout, verify the result and receive a signed webhook through a Node SDK. All payments will be simulated.
 
-Phases 0 to 5 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments, serves the hosted checkout page with a fake bank card simulator, lists paginated merchant transaction history, verifies transactions server-side with merchant isolation, and delivers HMAC-signed `charge.completed` webhooks with retries and attempt logs. The Node SDK and the merchant dashboard are the next phases.
+Phases 0 to 6 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments, serves the hosted checkout page with a fake bank card simulator, lists paginated merchant transaction history, verifies transactions server-side with merchant isolation, delivers HMAC-signed `charge.completed` webhooks with retries and attempt logs, and ships the `@flutterpay/sdk-node` TypeScript Node SDK. The merchant dashboard is the next phase.
 
 ## Run it
 
@@ -205,6 +205,51 @@ If your endpoint returns a non-`2xx` response or times out, FlutterPay logs the 
 Invoke-RestMethod -Uri "http://127.0.0.1:3000/v1/webhooks/deliveries?transaction_id=$($payment.transaction.id)" -Headers $headers
 ```
 
+## Node SDK (`packages/sdk-node`)
+
+Install/use `@flutterpay/sdk-node` from this workspace to call FlutterPay from Node.js with typed errors and webhook signature verification:
+
+```ts
+import {
+  FlutterPay,
+  FlutterPayConflictError,
+  FlutterPayWebhookSignatureError,
+  WEBHOOK_SIGNATURE_HEADER,
+} from "@flutterpay/sdk-node";
+
+const flutterpay = new FlutterPay({
+  secretKey: process.env.FLUTTERPAY_SECRET_KEY!,
+  baseUrl: "http://127.0.0.1:3000",
+});
+
+// 1. Create a payment
+const { transaction, link } = await flutterpay.payments.create({
+  tx_ref: "order-1042",
+  amount_kobo: 500_000,
+  currency: "NGN",
+  customer_email: "buyer@example.com",
+  redirect_url: "http://127.0.0.1:4000/callback",
+});
+
+// 2. Verify a transaction server-side
+const verified = await flutterpay.transactions.verify(transaction.id);
+
+// 3. Verify incoming webhooks (and deduplicate by event.id)
+const event = flutterpay.webhooks.verify({
+  payload: rawRequestBody,
+  signature: requestHeaders[WEBHOOK_SIGNATURE_HEADER],
+  secret: process.env.FLUTTERPAY_WEBHOOK_SECRET!,
+});
+```
+
+With the API running (`npm run dev`), run the end-to-end SDK example in another terminal:
+
+```sh
+npm run example --workspace=@flutterpay/sdk-node
+```
+
+The SDK exports typed errors (`FlutterPayConfigError`, `FlutterPayValidationError`, `FlutterPayAuthenticationError`, `FlutterPayNotFoundError`, `FlutterPayConflictError`, `FlutterPayRateLimitError`, `FlutterPayApiError`, `FlutterPayNetworkError`, and `FlutterPayWebhookSignatureError`).
+
 ## API errors
 
 Errors contain a stable code and a readable message:
@@ -270,6 +315,15 @@ apps/api/
   test/checkout.test.ts    Checkout UI, fake bank, OTP retries, expiry and concurrency tests
   test/verify.test.ts      Server-side verification, tenant isolation and expiry tests
   test/webhooks.test.ts    HMAC signing, live delivery, retry backoff and isolation tests
+packages/sdk-node/
+  src/client.ts           FlutterPay client (payments, transactions, webhooks)
+  src/webhooks.ts         Standalone HMAC signature & event verification
+  src/errors.ts           Typed error classes
+  src/types.ts            API & webhook TypeScript contracts
+  src/index.ts            Public package exports
+  examples/payment-flow.ts Runnable end-to-end SDK + webhook receiver example
+  test/sdk.unit.test.ts   Config, error mapping and webhook verification unit tests
+  test/sdk.integration.test.ts Live integration tests against the API
 docs/
   flutterpay-plan.html     Visual roadmap for all phases
   2026-11-21-project-setup.md
@@ -278,9 +332,10 @@ docs/
   2026-11-21-phase-3-checkout.md
   2026-11-21-phase-4-verify.md
   2026-11-21-phase-5-webhooks.md
+  2026-11-22-phase-6-sdk-node.md
 ```
 
-The root package.json uses npm workspaces. It forwards commands to the API package. We will add `packages/sdk-node` and `apps/dashboard` when those phases begin. SDK examples and integration tests will exercise the payment flow directly. A demo shop is outside the project scope.
+The root package.json uses npm workspaces. It runs `typecheck`, `test`, and `build` across `@flutterpay/api` and `@flutterpay/sdk-node`. We will add `apps/dashboard` in Phase 7. A demo shop is outside the project scope.
 
 Prisma uses its [documented SQLite adapter](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/sqlite). The generated client and compiled JavaScript stay out of Git. Commit changes to the schema and its migration together. The lockfile records dependency versions for local installs and CI.
 
@@ -308,4 +363,4 @@ Running `npm install` or `npm ci` installs the Git hooks automatically via the `
 
 ## Next step
 
-Phase 6 adds the Node SDK (`packages/sdk-node`) with `payments.create()`, `transactions.verify()`, and `webhooks.verify()`. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 5 implementation plan](docs/2026-11-21-phase-5-webhooks.md).
+Phase 7 adds the merchant dashboard (`apps/dashboard`) for logging in, viewing transactions and webhook attempts, configuring webhook URLs, and replacing leaked API keys. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 6 implementation plan](docs/2026-11-22-phase-6-sdk-node.md).
