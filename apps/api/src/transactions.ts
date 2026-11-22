@@ -1,7 +1,7 @@
 import { Router, type Response } from "express";
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "./generated/prisma/client.js";
-import { requireSecretKey, type MerchantLocals } from "./auth.js";
+import { requireMerchantAuth, requireSecretKey, type MerchantLocals } from "./auth.js";
 
 export const transactionSelect = {
   id: true,
@@ -131,7 +131,7 @@ export function transactionRoutes(db: PrismaClient, options?: { now?: () => Date
     next();
   });
 
-  router.get("/", requireSecretKey(db), async (req, res: Response<unknown, MerchantLocals>, next) => {
+  router.get("/", requireMerchantAuth(db, { now }), async (req, res: Response<unknown, MerchantLocals>, next) => {
     const parsed = listTransactionsQuery.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({

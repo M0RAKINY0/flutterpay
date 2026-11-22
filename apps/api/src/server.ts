@@ -7,9 +7,10 @@ const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? 3000);
 const urlHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
 const appBaseUrl = process.env.APP_BASE_URL?.trim() || `http://${urlHost}:${port}`;
+const trustedProxySecret = process.env.DASHBOARD_PROXY_SECRET?.trim() || undefined;
 const webhookTracker = createWebhookTracker();
 const webhookWorker = startWebhookWorker(db, { tracker: webhookTracker });
-const server = createApp(db, { appBaseUrl, webhookTracker }).listen(port, host, () => {
+const server = createApp(db, { appBaseUrl, webhookTracker, trustedProxySecret }).listen(port, host, () => {
   console.log(`FlutterPay API listening at http://${host}:${port}`);
 });
 

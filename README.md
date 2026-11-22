@@ -2,7 +2,7 @@
 
 FlutterPay is a payment gateway simulator for learning backend development. The finished project will let a merchant create a payment, send a customer to checkout, verify the result and receive a signed webhook through a Node SDK. All payments will be simulated.
 
-Phases 0 to 6 are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys, creates pending payments, serves the hosted checkout page with a fake bank card simulator, lists paginated merchant transaction history, verifies transactions server-side with merchant isolation, delivers HMAC-signed `charge.completed` webhooks with retries and attempt logs, and ships the `@flutterpay/sdk-node` TypeScript Node SDK. The merchant dashboard is the next phase.
+All core phases (Phases 0 to 7) are implemented. The API runs locally, queries SQLite through Prisma, registers merchants, authenticates secret API keys and browser sessions, creates pending payments, serves the hosted checkout page with a fake bank card simulator, lists paginated merchant transaction history, verifies transactions server-side with merchant isolation, delivers HMAC-signed `charge.completed` webhooks with retries and attempt logs, ships the `@flutterpay/sdk-node` TypeScript Node SDK, and provides a server-rendered merchant dashboard (`apps/dashboard`) for viewing transactions/webhooks and replacing leaked API keys.
 
 ## Run it
 
@@ -35,12 +35,14 @@ Press Ctrl+C in the terminal to stop the server.
 | `npm run db:generate` | Generate the TypeScript database client from the Prisma schema. |
 | `npm run db:deploy` | Apply committed migrations to your local SQLite file. Safe to repeat. |
 | `npm run dev` | Start the API and restart it when you save code. |
+| `npm run dev:dashboard` | Start the merchant dashboard (`http://127.0.0.1:3001`) pointing at the local API. |
 | `npm run db:studio` | Open Prisma's database viewer. |
 | `npm run db:migrate -- --name describe_change` | Create and apply a migration after you change the schema. |
-| `npm test` | Test health, merchant signup, API key authentication, payment creation, transaction history, hosted checkout, transaction verification and webhooks against temporary SQLite databases. |
-| `npm run typecheck` | Check TypeScript without building. |
-| `npm run build` | Generate the database client and compile the API into apps/api/dist. |
+| `npm test` | Run API, Node SDK, and dashboard tests against temporary SQLite databases. |
+| `npm run typecheck` | Check TypeScript across all workspaces without building. |
+| `npm run build` | Generate the Prisma client and compile the API, Node SDK, and dashboard. |
 | `npm start` | Run the compiled API after building and applying migrations. |
+| `npm run start:dashboard` | Run the compiled merchant dashboard. |
 
 A migration is a saved SQL change to the database structure. The initial migration creates the Merchant table, Phase 1 adds ApiKey records linked to merchants, Phase 2 adds Transaction records, Phase 3 adds checkout fields, and Phase 5 adds merchant webhook settings and WebhookDelivery logs. Run `npm run db:deploy` after pulling new migrations.
 
@@ -96,7 +98,7 @@ $headers = @{ Authorization = "Bearer $($account.keys.secret_key)" }
 Invoke-RestMethod -Uri http://127.0.0.1:3000/v1/merchants/me -Headers $headers
 ```
 
-`GET /v1/merchants/me` returns only the authenticated merchant's ID, business name and email. It reads keys only from the Authorization header. Missing, malformed, unknown, public and revoked keys all return the same 401 response. Key revocation is checked on every request. The endpoint for revoking or replacing keys belongs to the dashboard phase.
+`GET /v1/merchants/me` returns only the authenticated merchant's ID, business name and email. Secret API keys are read only from the Authorization header. Missing, malformed, unknown, public and revoked keys all return the same 401 response. Key revocation is checked on every request, and leaked keys can be replaced immediately via the merchant dashboard or `POST /v1/merchants/me/keys/rotate`.
 
 Merchant responses use `Cache-Control: no-store`. The database stores [Argon2id password hashes](https://github.com/ranisalt/node-argon2), SHA-256 API key hashes and display prefixes. It never stores plaintext passwords or complete API keys. The signup operation saves the merchant and both keys atomically.
 
@@ -250,6 +252,22 @@ npm run example --workspace=@flutterpay/sdk-node
 
 The SDK exports typed errors (`FlutterPayConfigError`, `FlutterPayValidationError`, `FlutterPayAuthenticationError`, `FlutterPayNotFoundError`, `FlutterPayConflictError`, `FlutterPayRateLimitError`, `FlutterPayApiError`, `FlutterPayNetworkError`, and `FlutterPayWebhookSignatureError`).
 
+## Merchant dashboard (`apps/dashboard`)
+
+Start the API in one terminal (`npm run dev`) and the dashboard in another:
+
+```sh
+npm run dev:dashboard
+```
+
+Open <http://127.0.0.1:3001> to:
+- **Sign up or log in** using `HttpOnly; SameSite=Lax` sessions backed by SHA-256 hashed tokens (`POST /v1/sessions`, `GET /v1/sessions/me`, `POST /v1/sessions/logout`).
+- **View transactions** filtered by UTC period (`all`, `daily`, `weekly`, `monthly`) with pagination.
+- **Inspect webhook deliveries & configure your webhook URL** (including rotating signing secrets or disabling webhooks).
+- **Replace leaked API keys** (`GET /v1/merchants/me/keys`, `POST /v1/merchants/me/keys/rotate`). Replacing a secret key revokes the old key atomically inside a database transaction so it stops working immediately (`401 UNAUTHORIZED`).
+
+All state-changing dashboard forms and cookie-authenticated API endpoints are protected with per-session CSRF tokens (`_csrf` / `X-CSRF-Token`).
+
 ## API errors
 
 Errors contain a stable code and a readable message:
@@ -301,6 +319,7 @@ apps/api/
   src/app.ts              Express routes
   src/merchants.ts        Signup and merchant details endpoints
   src/payments.ts         Payment creation endpoint and checkout link builder
+  src/sessions.ts         Merchant login sessions, cookies and CSRF verification
   src/transactions.ts     Transaction serialization, paginated history and verify endpoint
   src/webhooks.ts         HMAC webhook signing, retry queue worker and delivery log endpoint
   src/checkout.ts         Hosted checkout pages, charge/OTP handlers and redirects
@@ -315,6 +334,13 @@ apps/api/
   test/checkout.test.ts    Checkout UI, fake bank, OTP retries, expiry and concurrency tests
   test/verify.test.ts      Server-side verification, tenant isolation and expiry tests
   test/webhooks.test.ts    HMAC signing, live delivery, retry backoff and isolation tests
+  test/sessions.test.ts    Session cookies, CSRF enforcement and immediate key rotation tests
+apps/dashboard/
+  src/app.ts              Server-rendered Express dashboard routes and CSRF/cookie handling
+  src/api-client.ts       Typed HTTP client talking to @flutterpay/api
+  src/views.ts            Escaped HTML views for auth, transactions, webhooks and API keys
+  src/server.ts           Dashboard HTTP listener and graceful shutdown
+  test/dashboard.test.ts  End-to-end dashboard tests against the live API
 packages/sdk-node/
   src/client.ts           FlutterPay client (payments, transactions, webhooks)
   src/webhooks.ts         Standalone HMAC signature & event verification
@@ -333,9 +359,10 @@ docs/
   2026-11-21-phase-4-verify.md
   2026-11-21-phase-5-webhooks.md
   2026-11-22-phase-6-sdk-node.md
+  2026-11-22-phase-7-dashboard.md
 ```
 
-The root package.json uses npm workspaces. It runs `typecheck`, `test`, and `build` across `@flutterpay/api` and `@flutterpay/sdk-node`. We will add `apps/dashboard` in Phase 7. A demo shop is outside the project scope.
+The root package.json uses npm workspaces. It runs `typecheck`, `test`, and `build` across `@flutterpay/api`, `@flutterpay/sdk-node`, and `@flutterpay/dashboard`. A demo shop is outside the project scope.
 
 Prisma uses its [documented SQLite adapter](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/sqlite). The generated client and compiled JavaScript stay out of Git. Commit changes to the schema and its migration together. The lockfile records dependency versions for local installs and CI.
 
@@ -363,4 +390,4 @@ Running `npm install` or `npm ci` installs the Git hooks automatically via the `
 
 ## Next step
 
-Phase 7 adds the merchant dashboard (`apps/dashboard`) for logging in, viewing transactions and webhook attempts, configuring webhook URLs, and replacing leaked API keys. See the [visual build plan](docs/flutterpay-plan.html) and the [Phase 6 implementation plan](docs/2026-11-22-phase-6-sdk-node.md).
+All 8 core phases (Phases 0–7) from the [visual build plan](docs/flutterpay-plan.html) are complete. Optional stretch goals include a browser popup checkout script, refunds, test/live mode switching, a Python SDK, and payouts. See the [Phase 7 implementation plan](docs/2026-11-22-phase-7-dashboard.md).
