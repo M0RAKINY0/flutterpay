@@ -36,11 +36,12 @@ Press Ctrl+C in the terminal to stop the server.
 | `npm run db:deploy` | Apply committed migrations to your local SQLite file. Safe to repeat. |
 | `npm run dev` | Start the API and restart it when you save code. |
 | `npm run dev:dashboard` | Start the merchant dashboard (`http://127.0.0.1:3001`) pointing at the local API. |
+| `npm run dev:web` | Start the React dashboard UI (`http://127.0.0.1:5173`). It runs on mock data and needs no API. |
 | `npm run db:studio` | Open Prisma's database viewer. |
 | `npm run db:migrate -- --name describe_change` | Create and apply a migration after you change the schema. |
-| `npm test` | Run API, Node SDK, and dashboard tests against temporary SQLite databases. |
+| `npm test` | Run API, Node SDK, dashboard, and web UI tests. API, SDK, and dashboard tests use temporary SQLite databases. |
 | `npm run typecheck` | Check TypeScript across all workspaces without building. |
-| `npm run build` | Generate the Prisma client and compile the API, Node SDK, and dashboard. |
+| `npm run build` | Generate the Prisma client and compile the API, Node SDK, dashboard, and web UI. |
 | `npm start` | Run the compiled API after building and applying migrations. |
 | `npm run start:dashboard` | Run the compiled merchant dashboard. |
 
@@ -341,6 +342,12 @@ apps/dashboard/
   src/views.ts            Escaped HTML views for auth, transactions, webhooks and API keys
   src/server.ts           Dashboard HTTP listener and graceful shutdown
   test/dashboard.test.ts  End-to-end dashboard tests against the live API
+apps/web/
+  src/App.tsx             React + Vite dashboard UI with hash routes for each page
+  src/pages/              Overview, transactions, webhooks and API keys pages
+  src/data/mock.ts        Mock data shaped like the API responses
+  src/lib/format.ts       Naira/date formatting and transaction filters
+  test/format.test.ts     Formatting and filter unit test
 packages/sdk-node/
   src/client.ts           FlutterPay client (payments, transactions, webhooks)
   src/webhooks.ts         Standalone HMAC signature & event verification
@@ -362,7 +369,7 @@ docs/
   2026-11-22-phase-7-dashboard.md
 ```
 
-The root package.json uses npm workspaces. It runs `typecheck`, `test`, and `build` across `@flutterpay/api`, `@flutterpay/sdk-node`, and `@flutterpay/dashboard`. A demo shop is outside the project scope.
+The root package.json uses npm workspaces. It runs `typecheck`, `test`, and `build` across `@flutterpay/api`, `@flutterpay/sdk-node`, `@flutterpay/dashboard`, and `@flutterpay/web`. A demo shop is outside the project scope.
 
 Prisma uses its [documented SQLite adapter](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/sqlite). The generated client and compiled JavaScript stay out of Git. Commit changes to the schema and its migration together. The lockfile records dependency versions for local installs and CI.
 
